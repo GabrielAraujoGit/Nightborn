@@ -113,13 +113,12 @@
     
     <div id="info">
         <strong>🎮 Minecraft Clone</strong><br>
-        WASD - Mover<br>
-        Espaço - Pular<br>
-        Mouse - Olhar<br>
-        Click Esquerdo - Remover bloco<br>
-        Click Direito - Adicionar bloco<br>
-        1-6 - Selecionar bloco<br>
-        ESC - Liberar mouse
+        WASD - Mover | Espaço - Pular<br>
+        Mouse - Olhar | ESC - Liberar mouse<br>
+        Click Esq - Remover | Click Dir - Adicionar<br>
+        1-7 - Selecionar bloco<br>
+        <span id="time-display">☀️ Dia</span> | <span id="dimension-display">🌍 Overworld</span><br>
+        <span id="health-display">❤️ Vida: 100</span>
     </div>
 
     <div id="crosshair"></div>
@@ -131,20 +130,22 @@
         <div class="block-selector" data-type="wood" style="background: #8B4513; background-image: repeating-linear-gradient(90deg, transparent, transparent 5px, rgba(0,0,0,0.1) 5px, rgba(0,0,0,0.1) 10px);">Madeira</div>
         <div class="block-selector" data-type="sand" style="background: #F4A460;">Areia</div>
         <div class="block-selector" data-type="water" style="background: #1E90FF;">Água</div>
+        <div class="block-selector" data-type="portal" style="background: linear-gradient(45deg, #8B00FF 0%, #4B0082 50%, #8B00FF 100%);">Portal</div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
         // Configuração básica
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87CEEB);
-        scene.fog = new THREE.Fog(0x87CEEB, 0, 400);
-
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
         document.body.appendChild(renderer.domElement);
+
+        // Sistema de tempo (dia/noite)
+        let timeOfDay = 0; // 0-1 (0=amanhecer, 0.25=dia, 0.5=entardecer, 0.75=noite)
+        let currentDimension = 'overworld'; // 'overworld' ou 'nether'
 
         // Iluminação
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -170,16 +171,30 @@
                 color: 0x1E90FF, 
                 transparent: true, 
                 opacity: 0.7 
+            }),
+            portal: new THREE.MeshLambertMaterial({ 
+                color: 0x8B00FF,
+                emissive: 0x8B00FF,
+                emissiveIntensity: 0.5
+            }),
+            netherrack: new THREE.MeshLambertMaterial({ color: 0x8B0000 }),
+            glowstone: new THREE.MeshLambertMaterial({ 
+                color: 0xFFD700,
+                emissive: 0xFFD700,
+                emissiveIntensity: 1
             })
         };
 
-        // Geometria do bloco
+        // Geometrias
         const blockSize = 10;
         const blockGeometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
+        const mobGeometry = new THREE.BoxGeometry(8, 15, 8);
 
-        // Armazenamento de blocos
+        // Armazenamento
         const blocks = new Map();
+        const mobs = [];
         let selectedBlockType = 'grass';
+        let playerHealth = 100;
 
         // Função para criar chave única para posição
         function positionKey(x, y, z) {
@@ -191,12 +206,17 @@
             const key = positionKey(x, y, z);
             if (blocks.has(key)) return;
 
-            const block = new THREE.Mesh(blockGeometry, materials[type]);
+            const block = new THREE.Mesh(blockGeometry, materials[type] || materials.stone);
             block.position.set(x, y, z);
             block.castShadow = true;
             block.receiveShadow = true;
             scene.add(block);
             blocks.set(key, { mesh: block, type: type });
+
+            // Se for um portal, verificar se deve teleportar
+            if (type === 'portal') {
+                checkPortalStructure(x, y, z);
+            }
         }
 
         // Remover bloco
@@ -209,41 +229,57 @@
             }
         }
 
-        // Gerar terreno inicial
-        function generateTerrain() {
+        // Verificar estrutura do portal (simples)
+        function checkPortalStructure(x, y, z) {
+            // Portal ativa se tiver 4 blocos em formato de quadrado
+            const portalBlocks = [
+                positionKey(x, y, z),
+                positionKey(x + blockSize, y, z),
+                positionKey(x, y + blockSize, z),
+                positionKey(x + blockSize, y + blockSize, z)
+            ];
+
+            const allPortal = portalBlocks.every(key => {
+                const block = blocks.get(key);
+                return block && block.type === 'portal';
+            });
+
+            if (allPortal) {
+                console.log('Portal ativado!');
+            }
+        }
+
+        // Gerar terreno Overworld
+        function generateOverworld() {
+            clearWorld();
             const size = 20;
             for (let x = -size; x <= size; x += blockSize) {
                 for (let z = -size; z <= size; z += blockSize) {
                     const noise = Math.sin(x * 0.1) * Math.cos(z * 0.1) * 10;
                     const height = Math.floor(noise);
                     
-                    // Grama na superfície
                     addBlock(x, height, z, 'grass');
                     
-                    // Terra abaixo
                     for (let y = height - blockSize; y >= height - blockSize * 2; y -= blockSize) {
                         addBlock(x, y, z, 'dirt');
                     }
                     
-                    // Pedra no fundo
                     for (let y = height - blockSize * 3; y >= height - blockSize * 4; y -= blockSize) {
                         addBlock(x, y, z, 'stone');
                     }
                 }
             }
 
-            // Adicionar algumas árvores
+            // Árvores
             for (let i = 0; i < 5; i++) {
                 const treeX = (Math.random() - 0.5) * 200;
                 const treeZ = (Math.random() - 0.5) * 200;
                 const treeHeight = 30;
                 
-                // Tronco
                 for (let y = 0; y < treeHeight; y += blockSize) {
                     addBlock(treeX, y, treeZ, 'wood');
                 }
                 
-                // Folhas
                 for (let dx = -blockSize; dx <= blockSize; dx += blockSize) {
                     for (let dz = -blockSize; dz <= blockSize; dz += blockSize) {
                         for (let dy = 0; dy < blockSize * 2; dy += blockSize) {
@@ -254,6 +290,270 @@
                     }
                 }
             }
+
+            // Spawnar mobs passivos no dia
+            spawnMobs(3, 'pig');
+        }
+
+        // Gerar terreno Nether
+        function generateNether() {
+            clearWorld();
+            const size = 20;
+            for (let x = -size; x <= size; x += blockSize) {
+                for (let z = -size; z <= size; z += blockSize) {
+                    const noise = Math.sin(x * 0.15) * Math.cos(z * 0.15) * 5;
+                    const height = Math.floor(noise);
+                    
+                    // Chão de netherrack
+                    for (let y = height - blockSize * 3; y >= height - blockSize * 6; y -= blockSize) {
+                        addBlock(x, y, z, 'netherrack');
+                    }
+                    
+                    // Glowstone aleatório no teto
+                    if (Math.random() > 0.7) {
+                        addBlock(x, height + blockSize * 5, z, 'glowstone');
+                    }
+                }
+            }
+
+            // Pilares de netherrack
+            for (let i = 0; i < 8; i++) {
+                const pillarX = (Math.random() - 0.5) * 200;
+                const pillarZ = (Math.random() - 0.5) * 200;
+                for (let y = -30; y < 50; y += blockSize) {
+                    addBlock(pillarX, y, pillarZ, 'netherrack');
+                }
+            }
+
+            // Spawnar mobs hostis no Nether
+            spawnMobs(5, 'zombie_pigman');
+        }
+
+        // Limpar mundo
+        function clearWorld() {
+            blocks.forEach(block => scene.remove(block.mesh));
+            blocks.clear();
+            mobs.forEach(mob => scene.remove(mob.mesh));
+            mobs.length = 0;
+        }
+
+        // Trocar dimensão
+        function switchDimension() {
+            if (currentDimension === 'overworld') {
+                currentDimension = 'nether';
+                generateNether();
+                scene.background = new THREE.Color(0x330000);
+                scene.fog = new THREE.Fog(0x330000, 0, 200);
+                document.getElementById('dimension-display').textContent = '🔥 Nether';
+            } else {
+                currentDimension = 'overworld';
+                generateOverworld();
+                updateSkyColor();
+                document.getElementById('dimension-display').textContent = '🌍 Overworld';
+            }
+            player.position.set(0, 50, 50);
+        }
+
+        // Classe Mob
+        class Mob {
+            constructor(type, position) {
+                this.type = type;
+                this.position = position.clone();
+                this.velocity = new THREE.Vector3(0, 0, 0);
+                this.health = 20;
+                this.hostile = type === 'zombie' || type === 'zombie_pigman';
+                
+                // Criar mesh
+                const color = this.hostile ? 0x00FF00 : 0xFFC0CB;
+                const material = new THREE.MeshLambertMaterial({ color: color });
+                this.mesh = new THREE.Mesh(mobGeometry, material);
+                this.mesh.position.copy(this.position);
+                this.mesh.castShadow = true;
+                scene.add(this.mesh);
+
+                // IA
+                this.targetPlayer = false;
+                this.moveTimer = 0;
+                this.moveDirection = new THREE.Vector3();
+            }
+
+            update(playerPos) {
+                // Gravidade
+                this.velocity.y -= 0.04;
+                
+                // IA de movimento
+                this.moveTimer--;
+                if (this.moveTimer <= 0) {
+                    this.moveTimer = Math.random() * 100 + 50;
+                    
+                    if (this.hostile) {
+                        // Mobs hostis perseguem o jogador à noite ou no Nether
+                        const distance = this.position.distanceTo(playerPos);
+                        if (distance < 100 && (timeOfDay > 0.6 || currentDimension === 'nether')) {
+                            this.moveDirection.subVectors(playerPos, this.position).normalize();
+                            this.targetPlayer = true;
+                        } else {
+                            this.moveDirection.set(
+                                (Math.random() - 0.5) * 2,
+                                0,
+                                (Math.random() - 0.5) * 2
+                            ).normalize();
+                            this.targetPlayer = false;
+                        }
+                    } else {
+                        // Mobs passivos andam aleatoriamente
+                        this.moveDirection.set(
+                            (Math.random() - 0.5) * 2,
+                            0,
+                            (Math.random() - 0.5) * 2
+                        ).normalize();
+                    }
+                }
+
+                // Aplicar movimento
+                const speed = this.targetPlayer ? 0.3 : 0.1;
+                this.velocity.x = this.moveDirection.x * speed;
+                this.velocity.z = this.moveDirection.z * speed;
+
+                this.position.add(this.velocity);
+
+                // Colisão com chão
+                if (this.position.y < 10) {
+                    this.position.y = 10;
+                    this.velocity.y = 0;
+                }
+
+                this.mesh.position.copy(this.position);
+
+                // Atacar jogador se próximo e hostil
+                if (this.hostile && this.targetPlayer) {
+                    const distance = this.position.distanceTo(playerPos);
+                    if (distance < 15 && Math.random() > 0.98) {
+                        damagePlayer(5);
+                    }
+                }
+            }
+
+            takeDamage(amount) {
+                this.health -= amount;
+                if (this.health <= 0) {
+                    this.die();
+                }
+            }
+
+            die() {
+                scene.remove(this.mesh);
+                const index = mobs.indexOf(this);
+                if (index > -1) {
+                    mobs.splice(index, 1);
+                }
+            }
+        }
+
+        // Spawnar mobs
+        function spawnMobs(count, type) {
+            for (let i = 0; i < count; i++) {
+                const x = (Math.random() - 0.5) * 200;
+                const z = (Math.random() - 0.5) * 200;
+                const y = 50;
+                const mob = new Mob(type, new THREE.Vector3(x, y, z));
+                mobs.push(mob);
+            }
+        }
+
+        // Dano ao jogador
+        function damagePlayer(amount) {
+            playerHealth = Math.max(0, playerHealth - amount);
+            document.getElementById('health-display').textContent = `❤️ Vida: ${playerHealth}`;
+            
+            if (playerHealth <= 0) {
+                alert('Você morreu! Reiniciando...');
+                playerHealth = 100;
+                player.position.set(0, 50, 50);
+                document.getElementById('health-display').textContent = `❤️ Vida: ${playerHealth}`;
+            }
+        }
+
+        // Atualizar ciclo dia/noite
+        function updateDayNightCycle() {
+            if (currentDimension !== 'overworld') return;
+            
+            timeOfDay += 0.0002;
+            if (timeOfDay > 1) timeOfDay = 0;
+
+            updateSkyColor();
+            updateLighting();
+
+            // Spawnar zombies à noite
+            if (timeOfDay > 0.6 && timeOfDay < 0.61 && Math.random() > 0.5) {
+                spawnMobs(2, 'zombie');
+            }
+
+            // Despawnar zombies de dia
+            if (timeOfDay > 0.1 && timeOfDay < 0.11) {
+                mobs.forEach(mob => {
+                    if (mob.type === 'zombie') {
+                        mob.die();
+                    }
+                });
+            }
+        }
+
+        // Atualizar cor do céu
+        function updateSkyColor() {
+            if (currentDimension !== 'overworld') return;
+            
+            let color, fogColor;
+            
+            if (timeOfDay < 0.25) {
+                // Amanhecer
+                color = new THREE.Color().lerpColors(
+                    new THREE.Color(0x001a33),
+                    new THREE.Color(0x87CEEB),
+                    timeOfDay * 4
+                );
+            } else if (timeOfDay < 0.5) {
+                // Dia
+                color = new THREE.Color(0x87CEEB);
+            } else if (timeOfDay < 0.75) {
+                // Entardecer
+                color = new THREE.Color().lerpColors(
+                    new THREE.Color(0x87CEEB),
+                    new THREE.Color(0xFF6347),
+                    (timeOfDay - 0.5) * 4
+                );
+            } else {
+                // Noite
+                color = new THREE.Color().lerpColors(
+                    new THREE.Color(0xFF6347),
+                    new THREE.Color(0x001a33),
+                    (timeOfDay - 0.75) * 4
+                );
+            }
+
+            scene.background = color;
+            scene.fog = new THREE.Fog(color, 0, 400);
+        }
+
+        // Atualizar iluminação
+        function updateLighting() {
+            if (currentDimension !== 'overworld') return;
+            
+            let intensity;
+            
+            if (timeOfDay < 0.25 || timeOfDay > 0.75) {
+                intensity = 0.3;
+                document.getElementById('time-display').textContent = '🌙 Noite';
+            } else if (timeOfDay < 0.5) {
+                intensity = 0.8;
+                document.getElementById('time-display').textContent = '☀️ Dia';
+            } else {
+                intensity = 0.5;
+                document.getElementById('time-display').textContent = '🌅 Entardecer';
+            }
+
+            directionalLight.intensity = intensity;
+            ambientLight.intensity = intensity * 0.75;
         }
 
         // Controles do jogador
@@ -274,10 +574,15 @@
             keys[e.key.toLowerCase()] = true;
             
             // Seleção de blocos com números
-            if (e.key >= '1' && e.key <= '6') {
-                const types = ['grass', 'dirt', 'stone', 'wood', 'sand', 'water'];
+            if (e.key >= '1' && e.key <= '7') {
+                const types = ['grass', 'dirt', 'stone', 'wood', 'sand', 'water', 'portal'];
                 selectedBlockType = types[parseInt(e.key) - 1];
                 updateInventoryUI();
+            }
+
+            // Tecla N para trocar dimensão
+            if (e.key.toLowerCase() === 'n') {
+                switchDimension();
             }
         });
 
@@ -307,9 +612,9 @@
             player.rotation.set(mouseY, mouseX, 0);
         });
 
-        // Raycaster para detecção de blocos
+        // Raycaster
         const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2(0, 0); // Centro da tela
+        const mouse = new THREE.Vector2(0, 0);
 
         // Click do mouse
         renderer.domElement.addEventListener('mousedown', (e) => {
@@ -317,24 +622,39 @@
 
             raycaster.setFromCamera(mouse, camera);
             
-            const intersects = [];
+            // Verificar blocos
+            const blockIntersects = [];
             blocks.forEach((block) => {
                 const intersect = raycaster.intersectObject(block.mesh);
                 if (intersect.length > 0) {
-                    intersects.push({ ...intersect[0], block: block });
+                    blockIntersects.push({ ...intersect[0], block: block });
                 }
             });
 
-            if (intersects.length > 0) {
-                intersects.sort((a, b) => a.distance - b.distance);
-                const hit = intersects[0];
+            // Verificar mobs
+            const mobIntersects = [];
+            mobs.forEach((mob) => {
+                const intersect = raycaster.intersectObject(mob.mesh);
+                if (intersect.length > 0) {
+                    mobIntersects.push({ ...intersect[0], mob: mob });
+                }
+            });
 
-                if (e.button === 0) {
-                    // Click esquerdo - remover bloco
+            if (e.button === 0) {
+                // Atacar mobs primeiro
+                if (mobIntersects.length > 0) {
+                    mobIntersects.sort((a, b) => a.distance - b.distance);
+                    mobIntersects[0].mob.takeDamage(10);
+                } else if (blockIntersects.length > 0) {
+                    blockIntersects.sort((a, b) => a.distance - b.distance);
+                    const hit = blockIntersects[0];
                     const pos = hit.block.mesh.position;
                     removeBlock(pos.x, pos.y, pos.z);
-                } else if (e.button === 2) {
-                    // Click direito - adicionar bloco
+                }
+            } else if (e.button === 2) {
+                if (blockIntersects.length > 0) {
+                    blockIntersects.sort((a, b) => a.distance - b.distance);
+                    const hit = blockIntersects[0];
                     const normal = hit.face.normal;
                     const pos = hit.block.mesh.position;
                     const newPos = new THREE.Vector3(
@@ -369,10 +689,8 @@
 
         // Física e movimento
         function updatePlayer() {
-            // Gravidade
             player.velocity.y -= 0.04;
 
-            // Movimento
             const direction = new THREE.Vector3();
             const forward = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, player.rotation.y, 0));
             const right = new THREE.Vector3(1, 0, 0).applyEuler(new THREE.Euler(0, player.rotation.y, 0));
@@ -391,15 +709,12 @@
                 player.velocity.z *= 0.8;
             }
 
-            // Pulo
             if (keys[' '] && player.onGround) {
                 player.velocity.y = player.jumpPower;
             }
 
-            // Aplicar velocidade
             player.position.add(player.velocity);
 
-            // Colisão simples com o chão
             if (player.position.y < 20) {
                 player.position.y = 20;
                 player.velocity.y = 0;
@@ -408,7 +723,6 @@
                 player.onGround = false;
             }
 
-            // Atualizar câmera
             camera.position.copy(player.position);
             camera.rotation.copy(player.rotation);
         }
@@ -417,6 +731,11 @@
         function animate() {
             requestAnimationFrame(animate);
             updatePlayer();
+            updateDayNightCycle();
+            
+            // Atualizar mobs
+            mobs.forEach(mob => mob.update(player.position));
+            
             renderer.render(scene, camera);
         }
 
@@ -428,7 +747,8 @@
         });
 
         // Inicializar
-        generateTerrain();
+        generateOverworld();
+        updateSkyColor();
         document.getElementById('loading').style.display = 'none';
         animate();
     </script>
